@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flappy Bird Game</title>
+    <style>
+      /* --- THIẾT LẬP TOÀN TRANG --- */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: #111; /* Nền đen xung quanh điện thoại */
+        font-family: Arial, sans-serif;
+        overflow: hidden;
+      }
+
+      /* --- KHUNG HÌNH ĐIỆN THOẠI SMARTPHONE --- */
+      #phoneFrame {
+        position: relative;
+        width: 100%;
+        max-width: 380px; /* Chiều rộng chuẩn điện thoại */
+        height: 100vh;
+        max-height: 680px; /* Chiều cao chuẩn điện thoại */
+        background: #000;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow:
+          0 0 20px rgba(0, 0, 0, 0.8),
+          0 0 0 10px #222;
+      }
+
+      #gameContainer {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: #87ceeb;
+        cursor: pointer;
+      }
+
+      /* --- GIAO DIỆN HIỂN THỊ TRẠNG THÁI GAME --- */
+      #gameInfo {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        color: white;
+        font-size: 20px;
+        font-weight: bold;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        z-index: 10;
+        display: none;
+      }
+
+      #score {
+        color: #ffd700;
+        font-size: 28px;
+      }
+
+      #gameState {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        color: white;
+        z-index: 20;
+        width: 90%;
+        display: none;
+      }
+
+      #gameState.show {
+        display: block;
+      }
+
+      #gameState h1 {
+        font-size: 36px;
+        margin-bottom: 15px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+        color: #ffd700;
+      }
+
+      #gameState p {
+        font-size: 18px;
+        margin: 8px 0;
+        text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.8);
+      }
+
+      #gameState button {
+        margin-top: 20px;
+        padding: 12px 24px;
+        font-size: 18px;
+        background: #ffd700;
+        color: #000;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: bold;
+        box-shadow: 0 4px 0 #b89b00;
+        transition: all 0.1s;
+      }
+
+      #gameState button:active {
+        transform: translateY(3px);
+        box-shadow: 0 1px 0 #b89b00;
+      }
+
+      .controls {
+        position: absolute;
+        bottom: 15px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: white;
+        font-size: 13px;
+        text-align: center;
+        z-index: 10;
+        width: 100%;
+        text-shadow: 1px 1px 2px black;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Khung giao diện điện thoại -->
+    <div id="phoneFrame">
+      <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="gameInfo">Score: <span id="score">0</span></div>
+        <div id="gameState" class="show">
+          <h1>Flappy Bird</h1>
+          <p>Click hoặc Press SPACE để Start</p>
+          <p>Click hoặc Press SPACE để Flap</p>
+        </div>
+        <div class="controls">
+          <p>🖱️ Click hoặc 🔑 SPACE để chơi</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ==========================================
+      // 1. CẤU HÌNH VÀ BIẾN KHỞI TẠO
+      // ==========================================
+      const GAME_STATE = {
+        MENU: "menu",
+        PLAYING: "playing",
+        GAME_OVER: "gameOver",
+      };
+
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+
+      // Tự động điều chỉnh kích thước Canvas theo khung điện thoại
+      function resizeCanvas() {
+        const rect = canvas.parentElement.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+      }
+      resizeCanvas();
+      window.addEventListener("resize", resizeCanvas);
+
+      let gameState = GAME_STATE.MENU;
+      let score = 0;
+      let highScore =
+        parseInt(localStorage.getItem("flappyBirdHighScore")) || 0;
+
+      // Cấu hình con chim
+      const bird = {
+        x: 60,
+        y: 0,
+        width: 34,
+        height: 24,
+        velocity: 0,
+        gravity: 0.45, // Độ rơi (nhẹ hơn xíu cho dễ di chuyển)
+        jumpPower: -8.5, // Lực nhảy
+        maxVelocity: 8,
+        rotation: 0,
+      };
+
+      // Cấu hình cột / trụ nước (Đã nới rộng khoảng cách)
+      const pipeWidth = 52;
+      const pipeGap = 140; // KHOẢNG CÁCH GIỮA TRỤ TRÊN VÀ TRỤ DƯỚI (Mở rộng từ 110 lên 140)
+      const pipeSpeed = 2.2; // Tốc độ di chuyển của trụ
+      const pipeSpacing = 220; // KHOẢNG CÁCH GIỮA CÁC CẶP TRỤ KẾ TIẾP (Mở rộng từ 180 lên 220)
+      let pipes = [];
+
+      // ==========================================
+      // 2. TẢI TÀI NGUYÊN (ẢNH & ÂM THANH)
+      // ==========================================
+      const images = {
+        backgrounds: [],
+        birds: [],
+        pipes: [],
+        base: null,
+        numbers: [],
+      };
+
+      const sounds = {
+        wing: null,
+        hit: null,
+        point: null,
+        die: null,
+      };
+
+      function loadAssets() {
+        const assetPath = "./sprites/";
+        const audioPath = "./audio/";
+
+        images.backgrounds.push(loadImage(assetPath + "background-day.png"));
+        images.backgrounds.push(loadImage(assetPath + "background-night.png"));
+
+        images.birds.push(loadImage(assetPath + "yellowbird-upflap.png"));
+        images.birds.push(loadImage(assetPath + "yellowbird-midflap.png"));
+        images.birds.push(loadImage(assetPath + "yellowbird-downflap.png"));
+
+        images.pipes.push(loadImage(assetPath + "pipe-green.png"));
+        images.pipes.push(loadImage(assetPath + "pipe-red.png"));
+
+        images.base = loadImage(assetPath + "base.png");
+
+        for (let i = 0; i < 10; i++) {
+          images.numbers[i] = loadImage(assetPath + i + ".png");
+        }
+
+        sounds.wing = loadSound(audioPath + "wing.wav");
+        sounds.hit = loadSound(audioPath + "hit.wav");
+        sounds.point = loadSound(audioPath + "point.wav");
+        sounds.die = loadSound(audioPath + "die.wav");
+      }
+
+      function loadImage(src) {
+        const img = new Image();
+        img.src = src;
+        return img;
+      }
+
+      function loadSound(src) {
+        const audio = new Audio();
+        audio.src = src;
+        return audio;
+      }
+
+      function playSound(sound) {
+        if (sound && sound.src) {
+          sound.currentTime = 0;
+          sound.play().catch((e) => {});
+        }
+      }
+
+      // ==========================================
+      // 3. HÀM VẼ ĐỒ HỌA GAME (RENDER)
+      // ==========================================
+
+      // Vẽ hình nền
+      function drawBackground() {
+        const bgIndex = Math.floor((score / 10) % 2);
+        if (
+          images.backgrounds[bgIndex] &&
+          images.backgrounds[bgIndex].complete &&
+          images.backgrounds[bgIndex].naturalWidth !== 0
+        ) {
+          ctx.drawImage(
+            images.backgrounds[bgIndex],
+            0,
+            0,
+            canvas.width,
+            canvas.height,
+          );
+        } else {
+          ctx.fillStyle = "#70c5ce";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+      }
+
+      // Vẽ mặt đất
+      function drawBase() {
+        const baseHeight = 112;
+        if (
+          images.base &&
+          images.base.complete &&
+          images.base.naturalWidth !== 0
+        ) {
+          ctx.drawImage(
+            images.base,
+            0,
+            canvas.height - baseHeight,
+            canvas.width,
+            baseHeight,
+          );
+        } else {
+          ctx.fillStyle = "#ded895";
+          ctx.fillRect(0, canvas.height - baseHeight, canvas.width, baseHeight);
+        }
+
+        ctx.strokeStyle = "#555";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height - baseHeight);
+        ctx.lineTo(canvas.width, canvas.height - baseHeight);
+        ctx.stroke();
+      }
+
+      // Vẽ chú chim với hiệu ứng xoay góc
+      function drawBird() {
+        const birdIndex = Math.floor((Date.now() / 100) % 3);
+        ctx.save();
+
+        const maxRotation = Math.PI / 4;
+        bird.rotation = (bird.velocity / bird.maxVelocity) * maxRotation;
+        bird.rotation = Math.max(
+          -Math.PI / 6,
+          Math.min(maxRotation, bird.rotation),
+        );
+
+        ctx.translate(bird.x + bird.width / 2, bird.y + bird.height / 2);
+        ctx.rotate(bird.rotation);
+
+        if (
+          images.birds[birdIndex] &&
+          images.birds[birdIndex].complete &&
+          images.birds[birdIndex].naturalWidth !== 0
+        ) {
+          ctx.drawImage(
+            images.birds[birdIndex],
+            -bird.width / 2,
+            -bird.height / 2,
+            bird.width,
+            bird.height,
+          );
+        } else {
+          ctx.fillStyle = "#FFD700";
+          ctx.fillRect(
+            -bird.width / 2,
+            -bird.height / 2,
+            bird.width,
+            bird.height,
+          );
+        }
+
+        ctx.restore();
+      }
+
+      // VẼ CÁC TRỤ ĐẶC BIỆT: Đầu trụ quay vào nhau & kéo dài hết màn hình
+      function drawPipes() {
+        pipes.forEach((pipe) => {
+          const pipeImg = images.pipes[0];
+          const hasImage =
+            pipeImg && pipeImg.complete && pipeImg.naturalWidth !== 0;
+
+          // 1. VẼ TRỤ TRÊN (Lật ngược để đầu trụ hướng xuống dưới)
+          ctx.save();
+          ctx.translate(pipe.x + pipeWidth / 2, pipe.topHeight / 2);
+          ctx.scale(1, -1); // Lật ngược theo chiều dọc
+
+          if (hasImage) {
+            ctx.drawImage(
+              pipeImg,
+              -pipeWidth / 2,
+              -pipe.topHeight / 2,
+              pipeWidth,
+              pipe.topHeight,
+            );
+          } else {
+            ctx.fillStyle = "#73bf2e";
+            ctx.fillRect(
+              -pipeWidth / 2,
+              -pipe.topHeight / 2,
+              pipeWidth,
+              pipe.topHeight,
+            );
+          }
+          ctx.restore();
+
+          // 2. VẼ TRỤ DƯỚI (Đầu trụ hướng lên trên)
+          ctx.save();
+          if (hasImage) {
+            ctx.drawImage(
+              pipeImg,
+              pipe.x,
+              pipe.bottomY,
+              pipeWidth,
+              pipe.bottomHeight,
+            );
+          } else {
+            ctx.fillStyle = "#73bf2e";
+            ctx.fillRect(pipe.x, pipe.bottomY, pipeWidth, pipe.bottomHeight);
+          }
+          ctx.restore();
+        });
+      }
+
+      // Vẽ bảng điểm bằng bộ số ảnh
+      function drawScore() {
+        const scoreStr = score.toString();
+        const digitWidth = 24;
+        const totalWidth = scoreStr.length * digitWidth;
+        const startX = (canvas.width - totalWidth) / 2;
+
+        let hasNumberImages = true;
+        for (let i = 0; i < scoreStr.length; i++) {
+          const digit = parseInt(scoreStr[i]);
+          if (
+            !images.numbers[digit] ||
+            !images.numbers[digit].complete ||
+            images.numbers[digit].naturalWidth === 0
+          ) {
+            hasNumberImages = false;
+            break;
+          }
+        }
+
+        if (hasNumberImages) {
+          for (let i = 0; i < scoreStr.length; i++) {
+            const digit = parseInt(scoreStr[i]);
+            ctx.drawImage(
+              images.numbers[digit],
+              startX + i * digitWidth,
+              40,
+              digitWidth,
+              36,
+            );
+          }
+        } else {
+          ctx.fillStyle = "white";
+          ctx.strokeStyle = "black";
+          ctx.lineWidth = 3;
+          ctx.font = "bold 36px Arial";
+          ctx.textAlign = "center";
+          ctx.strokeText(scoreStr, canvas.width / 2, 60);
+          ctx.fillText(scoreStr, canvas.width / 2, 60);
+        }
+      }
+
+      // ==========================================
+      // 4. LOGIC XỬ LÝ GAME (UPDATE & COLLISION)
+      // ==========================================
+
+      // Hàm sinh trụ mới nối tiếp
+      function spawnPipe() {
+        const baseY = canvas.height - 112;
+        const minTop = 40;
+        const maxTop = baseY - pipeGap - 40;
+        const topHeight =
+          Math.floor(Math.random() * (maxTop - minTop + 1)) + minTop;
+        const bottomY = topHeight + pipeGap;
+
+        pipes.push({
+          x: canvas.width,
+          topHeight: topHeight,
+          bottomY: bottomY,
+          bottomHeight: baseY - bottomY, // Thân trụ dưới kéo dài tới sát mặt đất
+          scored: false,
+        });
+      }
+
+      // Cập nhật tọa độ & trạng thái các vật thể
+      function update() {
+        if (gameState !== GAME_STATE.PLAYING) return;
+
+        // Trọng lực kéo chim xuống
+        bird.velocity += bird.gravity;
+        bird.velocity = Math.min(bird.velocity, bird.maxVelocity);
+        bird.y += bird.velocity;
+
+        // Tạo thêm trụ mới khi trụ trước đã di chuyển đủ khoảng cách
+        if (
+          pipes.length === 0 ||
+          canvas.width - pipes[pipes.length - 1].x >= pipeSpacing
+        ) {
+          spawnPipe();
+        }
+
+        // Di chuyển các trụ sang trái
+        for (let i = pipes.length - 1; i >= 0; i--) {
+          pipes[i].x -= pipeSpeed;
+
+          // Tính điểm khi chim vượt qua trụ thành công
+          if (!pipes[i].scored && pipes[i].x + pipeWidth < bird.x) {
+            pipes[i].scored = true;
+            score++;
+            playSound(sounds.point);
+          }
+
+          // Xóa trụ khi đã ra khỏi màn hình
+          if (pipes[i].x + pipeWidth < 0) {
+            pipes.splice(i, 1);
+          }
+        }
+
+        // Kiểm tra va chạm
+        if (checkCollision()) {
+          endGame();
+        }
+      }
+
+      // Kiểm tra va chạm giữa chim và (Đất, Trần, Trụ)
+      function checkCollision() {
+        const baseY = canvas.height - 112;
+
+        // Va chạm mặt đất
+        if (bird.y + bird.height >= baseY) {
+          return true;
+        }
+
+        // Va chạm trần
+        if (bird.y <= 0) {
+          return true;
+        }
+
+        // Va chạm các trụ
+        for (let pipe of pipes) {
+          if (bird.x < pipe.x + pipeWidth && bird.x + bird.width > pipe.x) {
+            if (
+              bird.y < pipe.topHeight ||
+              bird.y + bird.height > pipe.bottomY
+            ) {
+              return true;
+            }
+          }
+        }
+
+        return false;
+      }
+
+      // Xử lý khi chim đập cánh (Nảy lên)
+      function flap() {
+        if (gameState === GAME_STATE.MENU) {
+          startGame();
+        } else if (gameState === GAME_STATE.PLAYING) {
+          bird.velocity = bird.jumpPower;
+          playSound(sounds.wing);
+        } else if (gameState === GAME_STATE.GAME_OVER) {
+          resetGame();
+        }
+      }
+
+      function startGame() {
+        gameState = GAME_STATE.PLAYING;
+        document.getElementById("gameState").classList.remove("show");
+        score = 0;
+        bird.y = (canvas.height - 112) * 0.4;
+        bird.velocity = bird.jumpPower;
+        playSound(sounds.wing);
+      }
+
+      function endGame() {
+        gameState = GAME_STATE.GAME_OVER;
+        playSound(sounds.hit);
+        setTimeout(() => playSound(sounds.die), 300);
+
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem("flappyBirdHighScore", highScore);
+        }
+
+        const gameOverDiv = document.getElementById("gameState");
+        gameOverDiv.innerHTML = `
+            <h1>Game Over!</h1>
+            <p>Score: ${score}</p>
+            <p>High Score: ${highScore}</p>
+            <p style="margin-top: 15px; font-size: 15px;">Click hoặc nhấn SPACE để chơi lại</p>
+            <button id="retryBtn">Chơi lại</button>
+        `;
+        gameOverDiv.classList.add("show");
+
+        document.getElementById("retryBtn").addEventListener("click", (e) => {
+          e.stopPropagation();
+          resetGame();
+        });
+      }
+
+      function resetGame() {
+        bird.y = (canvas.height - 112) * 0.4;
+        bird.velocity = 0;
+        pipes = [];
+        score = 0;
+        gameState = GAME_STATE.PLAYING;
+        document.getElementById("gameState").classList.remove("show");
+        bird.velocity = bird.jumpPower;
+        playSound(sounds.wing);
+      }
+
+      // Vòng lặp render chính (Game Loop)
+      function gameLoop() {
+        drawBackground();
+        drawPipes();
+        drawBase();
+        drawBird();
+
+        if (gameState === GAME_STATE.PLAYING) {
+          drawScore();
+        }
+
+        update();
+        requestAnimationFrame(gameLoop);
+      }
+
+      // ==========================================
+      // 5. LẮP ĐẶT SỰ KIỆN ĐIỀU KHIỂN
+      // ==========================================
+      document.addEventListener("click", flap);
+      document.addEventListener("keydown", (e) => {
+        if (e.code === "Space") {
+          e.preventDefault();
+          flap();
+        }
+      });
+
+      canvas.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        flap();
+      });
+
+      // Khởi chạy game
+      bird.y = (canvas.height - 112) * 0.4;
+      loadAssets();
+      gameLoop();
+    </script>
+  </body>
+</html>
